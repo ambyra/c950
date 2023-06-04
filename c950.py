@@ -1,8 +1,4 @@
-import csv, pprint
-
-#A) Package data steps:
-#1-Create HashTable data structure (See C950 - Webinar-1 - Let’s Go Hashing webinar)
-
+import csv
 
 #2-Create Package and Truck objects and have packageCSV and distanceCSV and addressCSV files ready
 #3-Create loadPackageData(HashTable) to 
@@ -11,7 +7,6 @@ import csv, pprint
 # insert Package object into HashTable with the key=PackageID and Item=Package
 
 class Package:
-    #Package ID, Address, City , State, Zip, Delivery Deadline , Mass KILO , Special Notes,
     def __init__(self, packageID, address, city, state, zip, deadline, mass, notes):
         self.packageID = packageID
         self.address = address
@@ -22,40 +17,32 @@ class Package:
         self.mass = mass
         self.notes = notes
 
-        def __str__(self):
-            return self.packageID
+    def getAddressNumber(self):
+        for entry in Distances.nameTable:
+            if self.address == entry[1]: return Distances.nameTable.index(entry)
 
-    #def print(self):
-     #   print(self.packageID, self.address, self.city, self.state, se)
-
-#From C950 webinar 1 "lets go hashing"
 class ChainingHashTable:
-    def __init__(self, initial_capacity=10):
+    def __init__(self): 
         self.table = []
-        self.currentIndex = 0
-        for i in range(initial_capacity):
-            self.table.append([])
-      
+        for i in range(10): self.table.append([])
+
     def insert(self, key, value):
         bucket = hash(key) % len(self.table)
-        print(bucket)
         bucket_list = self.table[bucket]
 
         for kv in bucket_list:
-            if kv[0] == key:
+            if kv[0] == key: 
                 kv[1] = value
+                return
         
-        kv = [key, value]
-        bucket_list.append(kv)
+        bucket_list.append([key, value])
 
-    def search(self, key):
+    def get(self, key):
         bucket = hash(key) % len(self.table)
         bucket_list = self.table[bucket]
 
         for kv in bucket_list:
-            print (kv[0], kv[1])
-            if kv[0] == key:
-                return kv[1]
+            if kv[0] == key: return kv[1]
         
         return None
 
@@ -64,22 +51,47 @@ class ChainingHashTable:
         bucket_list = self.table[bucket]
 
         for kv in bucket_list:
-            if kv[0] == key:
-                bucket_list.remove([kv[0],kv[1]])
-                return True
-        
-        return False
+            if kv[0] == key: bucket_list.remove([kv[0],kv[1]])
 
-with open('./distanceTable.csv',mode = 'r', encoding='utf-8-sig') as csvfile:
-    distanceTable = list(csv.reader(csvfile))
+class Truck:
+    def __init__(self, packages):
+        self.packages = packages
+        self.speed = 18
 
-with open('./packageTable.csv',mode = 'r', encoding='utf-8-sig') as csvfile:
-    packageTable = list(csv.reader(csvfile))
+    def deliver(self):
+        for package in self.packages:
+            return
 
-Packages = ChainingHashTable()
-for package in packageTable:
-    key = int(package[0])
-    value = Package(key, package[1], package[2], package[3], package[4], package[5], package[6], package[7])
-    Packages.insert(key, value)
+def PackageTable():
+    packages = ChainingHashTable()
+    with open('./packageTable.csv',mode = 'r', encoding='utf-8-sig') as csvfile:
+        packageEntries = list(csv.reader(csvfile))
+
+    for p in packageEntries:
+        key = int(p[0])
+        value = Package(key, p[1], p[2], p[3], p[4], p[5], p[6], p[7])
+        packages.insert(key, value)
+
+    return packages
+
+class DistanceTable():
+    def __init__(self):
+        self.nameTable = []
+        self.distanceTable = []
+        with open('./distanceTable.csv',mode = 'r', encoding='utf-8-sig') as csvfile:
+            entries = list(csv.reader(csvfile))
+        for entry in entries:
+            self.nameTable.append([entry[0], entry [1], entry[2]])
+            for i in range(3): entry.remove(entry[0])
+            self.distanceTable.append(entry)
+
+    def getDistance(self, a, b):
+        if a > 26: return None
+        if a == b: return 0.0, None, None
+        distance = self.distanceTable[a][b]
+
+        if distance == '': return float(self.distanceTable[b][a]), self.nameTable[a], self.nameTable[b]
+        return float(distance), self.nameTable[a], self.nameTable[b]
     
-print(Packages.search(1))
+Packages = PackageTable()
+Distances = DistanceTable()
