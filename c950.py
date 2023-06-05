@@ -66,14 +66,21 @@ def PackageTable():
     #- update Package object
     for p in packageEntries:
         key = int(p[0])
+        value = Package(key, p[1], p[2], p[3], p[4], p[5], p[6], p[7])
 
         #parse deadline into minutes after 0000
-        deadlineText = p[5]
-        deadline = 24 * 60
-        if deadlineText == '10:30 AM': deadline = (10*60 ) + 30
-        if deadlineText == '9:00 AM': deadline = 9 * 60
-        
-        value = Package(key, p[1], p[2], p[3], p[4], deadline, p[6], p[7])
+        if value.deadline == 'EOD':
+            value.deadline = 24 * 60
+        if value.deadline == '10:30 AM':
+            value.deadline = (10*60 ) + 30
+        if value.deadline == '9:00 AM': 
+            value.deadline = 9 * 60
+
+        #set availability time
+        value.timeAvailable = 8 * 60
+        delayed ='Delayed on flight---will not arrive to depot until 9:05 am'
+        if value.note == delayed: value.timeAvailable = (9 * 60) + 5
+
         # insert Package object into HashTable with the key=PackageID and Item=Package
         packages.insert(key, value)
 
@@ -82,7 +89,7 @@ def PackageTable():
 class Package:
     #2-Create Package and Truck objects and have packageCSV and distanceCSV and addressCSV files ready
     Distances = DistanceTable()
-    def __init__(self, ID, address, city, state, zip, deadline, mass, notes):
+    def __init__(self, ID, address, city, state, zip, deadline, mass, note):
         self.ID = ID
         self.address = address
         self.city = city
@@ -90,10 +97,13 @@ class Package:
         self.zip = zip
         self.deadline = deadline
         self.mass = mass
-        self.notes = notes
+        self.note = note
+
         self.addressIndex = self.getAddressIndex()
+        self.timeAvailable = 8 * 60
         self.timeDelivered = None
         self.isDelivered = False
+
 
     def __str__(self): return 'Package: ' + str(self.ID)
 
@@ -112,25 +122,27 @@ class Truck:
     def __init__(self, truckName):
         self.name = str(truckName)
         self.packages = []
-        self.currentTime = Truck.StartTime
-        self.milesTraveled = 0
+        self.time = Truck.StartTime
+        self.miles = 0
         self.addressIndex = 0
+
+        self.driver = None
 
     def travel(self, destinationIndex):
         distance = Truck.Distances.getDistance(self.addressIndex, destinationIndex)
         
-        self.currentTime += distance / self.Speed
-        self.milesTraveled += distance
+        self.time += distance / self.Speed
+        self.miles += distance
         self.addressIndex = destinationIndex
 
-        if self.milesTraveled > self.MaxMileage:
-            print('*** ERROR: Truck ' + str(self.truckName) + ' exceeded max mileage')
+        if self.miles > self.MaxMileage:
+            print('*** ERROR: Truck ' + str(self.name) + ' exceeded max mileage')
 
     def load(self, package):
-        if len(self.packages) > self.MaxPackages:
-            print('*** ERROR: Truck ' + str(self.truckName) + ' exceeded max packages')
-            return
         self.packages.append(package)
+        if len(self.packages) > Truck.MaxPackages:
+            print('*** ERROR: Truck ' + str(self.name) + ' exceeded max packages')
+            return
 
     def getClosestPackage(self):
         lowestDistance = 100
@@ -142,13 +154,18 @@ class Truck:
             #determine if truck has enough miles to deliver package and return to hub
             distanceToDeliveryAddress = Truck.Distances.getDistance(self.addressIndex, package.addressIndex)
             distanceToHubFromDeliveryAddress = Truck.Distances.getDistance(package.addressIndex, Truck.Hub)
-            travelDistance = self.milesTraveled + distanceToDeliveryAddress + distanceToHubFromDeliveryAddress
+            travelDistance = self.miles + distanceToDeliveryAddress + distanceToHubFromDeliveryAddress
             if travelDistance > Truck.MaxMileage: continue
 
             #determine if package is closest package to current location
             if distanceToDeliveryAddress < lowestDistance: 
                 currentPackage = package
                 lowestDistance = distanceToDeliveryAddress
+
+            #determine if package will arrive late if not delivered next
+            deliveryTime = self.time + distanceToDeliveryAddress/Truck.Speed
+            if deliveryTime + 45 > package.deadline:
+                return package
         return currentPackage
     
     def deliverPackages(self):
@@ -163,7 +180,7 @@ class Truck:
 
                 #move truck to delivery address; deliver package
                 self.travel(package.addressIndex)
-                package.timeDelivered = self.currentTime
+                package.timeDelivered = self.time
                 package.isDelivered = True
 
                 #report
@@ -187,31 +204,124 @@ class Truck:
         undeliveredPackages = []
         for package in self.packages:
             if not package.isDelivered: undeliveredPackages.append(package)
-        Hub.extend(undeliveredPackages)
 
         #unload truck
         self.packages = []
 
         #report 
-        time = str(m2h(self.currentTime))
-        message = 'Truck ' + self.name + ' returned to hub at ' + time + ' with ' + str(self.milesTraveled) + ' miles, '
-        if len(undeliveredPackages) == 0:
+        time = str(m2h(self.time))
+        message = 'Truck ' + self.name + ' returned to hub at ' + time + ' with ' + str(self.miles) + ' miles, '
+        numUndelivered = len(undeliveredPackages)
+        if numUndelivered == 0:
             print (message + ' with no undelivered packages')
         else:
-            print (message + ' with following undelivered packages: ' + str(undeliveredPackages))
+            print (message + ' with ' + str(numUndelivered)+ ' undelivered packages: ')
+            for package in undeliveredPackages: print(package)
 
-#make trucks
-Truck1 = Truck(1)
-Truck2 = Truck(2)
-Truck3 = Truck(3)
+class Driver:
+    def __init__(self, name):
+        self.name = str(name)
+        self.truck = None
+        self.addressIndex = self.getLocation()
 
-#make hub
-Hub = []
+    def getLocation(self):
+        if(self.truck == None): return 0
+        return self.truck.addressIndex
 
-#load trucks
-Packages = PackageTable()
-for i in range(1,41):
-    currentPackage = Packages.get(i)
-    if currentPackage.notes == 'Can only be on truck 2': Truck2.load(currentPackage)
+class Hub:
+    PackagesHashTable = PackageTable() #all packages
 
-Truck2.deliverPackages()
+    def __init__(self):
+        self.Packages = [] #packages remaining at hub
+        for i in range(1,41):
+            package = Hub.PackagesHashTable.get(i)
+            self.Packages.append(package)
+
+            self.Truck1 = Truck(1)
+            self.Truck2 = Truck(2)
+            self.Truck3 = Truck(3)
+
+    def getPackage(self):
+        package = self.Packages[0]
+        self.Packages.remove(package)
+        return(package)
+
+    def returnPackage(self, package): self.Packages.append(package)
+
+    def loadTrucks(self):
+        noteDelayed ='Delayed on flight---will not arrive to depot until 9:05 am'
+        noteWrongAddress = 'Wrong address listed'
+        noteTruck2 = 'Can only be on truck 2'
+
+        for i in range(len(self.Packages)):
+            package = self.getPackage()
+            if package == None: return
+
+            t1NumPackages = len(self.Truck1.packages)
+            t2NumPackages = len(self.Truck2.packages)
+            t3NumPackages = len(self.Truck3.packages)
+
+            #load truck 1 and truck 2 evenly
+            truck = self.Truck1
+            if t2NumPackages < t1NumPackages: 
+                truck = self.Truck2
+
+            #is package for truck 2?
+            if package.note == noteTruck2:
+                self.Truck2.load(package)
+                continue
+
+            #load low priority packages on truck 3
+            if package.deadline == 24*60 and t3NumPackages < Truck.MaxPackages:
+                self.Truck3.load(package)
+                continue
+
+            #is package available? noteDelayed
+            if truck.time >= package.timeAvailable:
+                truck.load(package)
+                continue
+
+            #package not loaded onto any truck, return to hub
+            self.returnPackage(package)
+
+def packageStatus():
+    print('--- hub ---')
+    for package in hub.Packages: print(package)
+    print('--- t1 ---')
+    for package in hub.Truck1.packages: print(package)
+    print('--- t2 ---')
+    for package in hub.Truck2.packages: print(package)
+    print('--- t3 ---')
+    for package in hub.Truck3.packages: print(package)
+
+hub = Hub()
+hub.loadTrucks()
+
+#packageStatus()
+#driver 1 deliver packages and return to hub
+hub.Truck1.deliverPackages()
+
+#driver 2 deliver packages and return to hub
+hub.Truck2.deliverPackages()
+
+#driver returning first delivers delayed packages
+#driver returning last delivers low priority packages on truck 3
+if hub.Truck1.time < hub.Truck2.time:
+    for package in hub.Packages: hub.Truck1.load(package)
+    hub.Packages = []
+    hub.Truck1.deliverPackages()
+    hub.Truck3.time = hub.Truck2.time
+    hub.Truck3.deliverPackages()
+else:
+    for package in hub.Packages: hub.Truck2.load(package)
+    hub.Packages = []
+    hub.Truck2.deliverPackages()
+    hub.Truck3.time = hub.Truck1.time
+    hub.Truck3.deliverPackages()
+
+packageStatus()
+
+#todo round miles
+#p9 wrong address listed
+
+
